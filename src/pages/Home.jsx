@@ -1,5 +1,5 @@
 import MovieCard from "../components/MovieCard";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { searchMovies, getPopularMovies } from "../services/api";
 import "../css/Home.css";
 
@@ -7,45 +7,72 @@ function Home() {
   const [searchQuery, setSearchQuery] = useState("");
   const [movies, setMovies] = useState([]);
   const [error, setError] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
+  const debounceTimerRef = useRef(null);
 
-  useEffect(() => {
-    const loadPopularMovies = async () => {
-      try {
-        const popularMovies = await getPopularMovies();
-        setMovies(popularMovies);
-      } catch (err) {
-        console.log(err);
-        setError("Failed to load movies...");
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    loadPopularMovies();
+  const fetchPopularMovies = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const popularMoviesData = await getPopularMovies();
+      setMovies(popularMoviesData);
+    } catch (err) {
+      setError("Failed to load popular movies...");
+      setMovies([]);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
-  const handleSearch = async (e) => {
-    e.preventDefault();
-    if (!searchQuery.trim()) return
-    if (loading) return
-
-    setLoading(true)
+  const performSearch = useCallback(async (query) => {
+    setLoading(true);
+    setError(null);
     try {
-        const searchResults = await searchMovies(searchQuery)
-        setMovies(searchResults)
-        setError(null)
+      const searchResults = await searchMovies(query);
+      setMovies(searchResults);
     } catch (err) {
-        console.log(err)
-        setError("Failed to search movies...")
+      setError("Failed to search movies...");
+      setMovies([]);
     } finally {
-        setLoading(false)
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+    }
+
+    debounceTimerRef.current = setTimeout(() => {
+      if (searchQuery.trim()) {
+        performSearch(searchQuery);
+      } else {
+        fetchPopularMovies();
+      }
+    }, 500);
+
+    return () => {
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+      }
+    };
+  }, [searchQuery, fetchPopularMovies, performSearch]);
+
+  const handleFormSubmit = (e) => {
+    e.preventDefault();
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+    }
+    if (searchQuery.trim()) {
+      performSearch(searchQuery);
+    } else {
+      fetchPopularMovies();
     }
   };
 
   return (
     <div className="home">
-      <form onSubmit={handleSearch} className="search-form">
+      <form onSubmit={handleFormSubmit} className="search-form">
         <input
           type="text"
           placeholder="Search for movies..."
@@ -58,17 +85,21 @@ function Home() {
         </button>
       </form>
 
-        {error && <div className="error-message">{error}</div>}
+      {error && <div className="error-message">{error}</div>}
 
       {loading ? (
         <div className="loading">Loading...</div>
-      ) : (
+      ) : movies.length > 0 ? (
         <div className="movies-grid">
           {movies.map((movie) => (
             <MovieCard movie={movie} key={movie.id} />
           ))}
         </div>
-      )}
+      ) : !error && searchQuery.trim() ? (
+        <div className="info-message">No movies found for "{searchQuery}".</div>
+      ) : !error && !searchQuery.trim() ? (
+        <div className="info-message">No popular movies to display. Try searching!</div>
+      ) : null}
     </div>
   );
 }
